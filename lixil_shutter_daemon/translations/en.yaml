@@ -1,0 +1,17 @@
+configuration:
+  log_level:
+    name: Log level
+    description: Daemon log verbosity.
+  bluetooth_adapter:
+    name: Bluetooth adapter
+    description: >-
+      Substring to match a specific Bluetooth adapter (e.g. part of a USB
+      dongle's name/address), so this add-on doesn't fight Home Assistant
+      Core's own Bluetooth integration for the onboard adapter. Check the
+      daemon's logs for "available bluetooth adapters" to see what's
+      detected. Leave blank to auto-pick the last-enumerated adapter.
+  shutters:
+    name: Shutters
+    description: >-
+      One entry per shutter: a short id (used in MQTT topics), a display
+      name, and its BLE MAC address.

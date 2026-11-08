@@ -1,0 +1,3 @@
+#!/usr/bin/with-contenv bashio
+# s6 convention: $1 is the exit code of the service that just stopped.
+bashio::log.warning "shutter-daemon exited with code ${1}"

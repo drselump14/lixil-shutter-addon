@@ -1,0 +1,37 @@
+name: "Lixil MyWindow Shutter Daemon"
+version: "0.3.1"
+slug: "lixil_shutter_daemon"
+description: "Persistent BLE connection + MQTT bridge for Lixil MyWindow smart shutters"
+url: "https://github.com/drselump14/lixil-shutter-addon"
+image: "ghcr.io/drselump14/{arch}-lixil-shutter-daemon"
+arch:
+  - aarch64
+init: false
+startup: services
+boot: auto
+host_dbus: true
+services:
+  - "mqtt:want"
+ingress: true
+ingress_port: 8099
+panel_icon: mdi:window-shutter
+options:
+  log_level: info
+  bluetooth_adapter: ""
+  shutters:
+    - id: living_room
+      name: "Living Room"
+      mac: ""
+    - id: master_bedroom
+      name: "Master Bedroom"
+      mac: ""
+    - id: tatami_room
+      name: "Tatami Room"
+      mac: ""
+schema:
+  log_level: "list(trace|debug|info|warning|error)?"
+  bluetooth_adapter: "str?"
+  shutters:
+    - id: "str"
+      name: "str"
+      mac: "str"

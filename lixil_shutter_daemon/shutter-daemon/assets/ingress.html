@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lixil Shutters</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --fg: #1c1c1c;
+    --bg: #fafafa;
+    --card: #ffffff;
+    --border: #dddddd;
+    --accent: #03a9f4;
+    --muted: #707070;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --fg: #e1e1e1;
+      --bg: #111111;
+      --card: #1c1c1c;
+      --border: #333333;
+      --muted: #9a9a9a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 16px;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  h1 { font-size: 1.3rem; margin: 0 0 4px; }
+  h2 { font-size: 1rem; margin: 0 0 8px; }
+  p.hint { color: var(--muted); font-size: 0.85rem; margin: 0 0 16px; }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 16px;
+    max-width: 480px;
+  }
+  ul.shutters { list-style: none; margin: 0; padding: 0; }
+  ul.shutters li {
+    display: flex;
+    justify-content: space-between;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.9rem;
+  }
+  ul.shutters li:last-child { border-bottom: none; }
+  ul.shutters li span.mac { color: var(--muted); font-family: monospace; }
+  button {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    padding: 8px 16px;
+    font-size: 0.9rem;
+    cursor: pointer;
+  }
+  button:disabled { opacity: 0.5; cursor: default; }
+  button.secondary { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
+  ul.devices { list-style: none; margin: 12px 0; padding: 0; }
+  ul.devices li {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+    margin-bottom: 8px;
+    cursor: pointer;
+  }
+  ul.devices li.selected { border-color: var(--accent); background: rgba(3, 169, 244, 0.1); }
+  ul.devices li .mac { font-family: monospace; font-size: 0.85rem; color: var(--muted); }
+  label { display: block; font-size: 0.85rem; margin: 10px 0 4px; }
+  input {
+    width: 100%;
+    padding: 8px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg);
+    color: var(--fg);
+    font-size: 0.9rem;
+  }
+  .status { font-size: 0.85rem; margin-top: 10px; min-height: 1.2em; }
+  .status.error { color: #e05555; }
+  .status.ok { color: #2e9e4f; }
+  .spinner {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border: 2px solid rgba(255,255,255,0.4);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    vertical-align: -2px;
+    margin-right: 6px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+  <h1>Lixil MyWindow Shutters</h1>
+  <p class="hint">Add a new shutter by scanning for it while it's in pairing mode.</p>
+
+  <div class="card">
+    <h2>Configured shutters</h2>
+    <ul class="shutters" id="configured-list"><li>Loading…</li></ul>
+  </div>
+
+  <div class="card">
+    <h2>Add new shutter</h2>
+    <p class="hint">Press the physical pairing-mode button on the shutter you want to add, then scan.</p>
+    <button id="scan-btn">Scan for shutters</button>
+    <ul class="devices" id="device-list"></ul>
+
+    <form id="add-form" style="display:none">
+      <label for="mac-display">Selected device</label>
+      <input id="mac-display" type="text" disabled>
+
+      <label for="id-input">ID (used in MQTT topics)</label>
+      <input id="id-input" type="text" placeholder="e.g. kitchen" pattern="[a-z0-9_]+" required>
+
+      <label for="name-input">Display name</label>
+      <input id="name-input" type="text" placeholder="e.g. Kitchen" required>
+
+      <div style="margin-top:14px">
+        <button type="submit" id="save-btn">Add shutter</button>
+      </div>
+    </form>
+
+    <div class="status" id="status"></div>
+  </div>
+
+<script>
+(() => {
+  const configuredList = document.getElementById('configured-list');
+  const scanBtn = document.getElementById('scan-btn');
+  const deviceList = document.getElementById('device-list');
+  const addForm = document.getElementById('add-form');
+  const macDisplay = document.getElementById('mac-display');
+  const idInput = document.getElementById('id-input');
+  const nameInput = document.getElementById('name-input');
+  const saveBtn = document.getElementById('save-btn');
+  const statusEl = document.getElementById('status');
+
+  let selectedMac = null;
+
+  function setStatus(msg, kind) {
+    statusEl.textContent = msg || '';
+    statusEl.className = 'status' + (kind ? ' ' + kind : '');
+  }
+
+  async function loadConfigured() {
+    try {
+      const res = await fetch('api/shutters');
+      const shutters = await res.json();
+      configuredList.innerHTML = '';
+      if (shutters.length === 0) {
+        configuredList.innerHTML = '<li>None configured yet</li>';
+        return;
+      }
+      for (const s of shutters) {
+        const li = document.createElement('li');
+        li.innerHTML = `<span>${escapeHtml(s.name)} (${escapeHtml(s.id)})</span><span class="mac">${escapeHtml(s.mac)}</span>`;
+        configuredList.appendChild(li);
+      }
+    } catch (e) {
+      configuredList.innerHTML = '<li>Failed to load</li>';
+    }
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  function renderDevices(devices) {
+    deviceList.innerHTML = '';
+    addForm.style.display = 'none';
+    selectedMac = null;
+    if (devices.length === 0) {
+      deviceList.innerHTML = '<li>No new shutters found. Make sure the one you want is in pairing mode, then scan again.</li>';
+      return;
+    }
+    for (const d of devices) {
+      const li = document.createElement('li');
+      const label = d.name ? `${escapeHtml(d.name)}` : 'Unknown shutter';
+      const rssi = (d.rssi !== null && d.rssi !== undefined) ? ` · RSSI ${d.rssi}` : '';
+      li.innerHTML = `<div>${label}${rssi}</div><div class="mac">${escapeHtml(d.mac)}</div>`;
+      li.addEventListener('click', () => selectDevice(d, li));
+      deviceList.appendChild(li);
+    }
+  }
+
+  function selectDevice(device, li) {
+    for (const el of deviceList.children) el.classList.remove('selected');
+    li.classList.add('selected');
+    selectedMac = device.mac;
+    macDisplay.value = device.mac;
+    addForm.style.display = 'block';
+    setStatus('');
+  }
+
+  scanBtn.addEventListener('click', async () => {
+    scanBtn.disabled = true;
+    scanBtn.innerHTML = '<span class="spinner"></span>Scanning (10s)…';
+    setStatus('');
+    deviceList.innerHTML = '';
+    addForm.style.display = 'none';
+    try {
+      const res = await fetch('api/scan', { method: 'POST' });
+      const body = await res.json();
+      if (!res.ok) {
+        setStatus(body.error || 'Scan failed', 'error');
+        return;
+      }
+      renderDevices(body.devices);
+    } catch (e) {
+      setStatus('Scan request failed: ' + e, 'error');
+    } finally {
+      scanBtn.disabled = false;
+      scanBtn.textContent = 'Scan for shutters';
+    }
+  });
+
+  addForm.addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    if (!selectedMac) return;
+    saveBtn.disabled = true;
+    saveBtn.innerHTML = '<span class="spinner"></span>Saving…';
+    setStatus('');
+    try {
+      const res = await fetch('api/shutters', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: idInput.value.trim(), name: nameInput.value.trim(), mac: selectedMac }),
+      });
+      const body = await res.json();
+      if (!res.ok) {
+        setStatus(body.error || 'Failed to add shutter', 'error');
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Add shutter';
+        return;
+      }
+      setStatus('Shutter saved. Restarting the daemon to apply it -- this page will stop responding for a few seconds.', 'ok');
+      addForm.style.display = 'none';
+      deviceList.innerHTML = '';
+    } catch (e) {
+      setStatus('Request failed: ' + e, 'error');
+      saveBtn.disabled = false;
+      saveBtn.textContent = 'Add shutter';
+    }
+  });
+
+  loadConfigured();
+})();
+</script>
+</body>
+</html>

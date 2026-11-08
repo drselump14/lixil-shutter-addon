@@ -1,0 +1,16 @@
+#!/usr/bin/with-contenv bashio
+# ==============================================================================
+# Fetches MQTT broker creds from Supervisor's service discovery (this add-on
+# declares `services: ["mqtt:want"]` in config.yaml) and hands them to the
+# Rust daemon as env vars -- broker creds are never stored in add-on options.
+# ==============================================================================
+
+export MQTT_HOST=$(bashio::services mqtt "host")
+export MQTT_PORT=$(bashio::services mqtt "port")
+export MQTT_USER=$(bashio::services mqtt "username")
+export MQTT_PASSWORD=$(bashio::services mqtt "password")
+export LOG_LEVEL=$(bashio::config "log_level")
+
+bashio::log.info "Starting shutter daemon (MQTT broker: ${MQTT_HOST}:${MQTT_PORT})"
+
+exec /usr/bin/shutter-daemon

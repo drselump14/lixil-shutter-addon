@@ -1,0 +1,69 @@
+name: Build add-on image
+
+# Builds and pushes ghcr.io/<owner>/aarch64-lixil-shutter-daemon:<version>
+# whenever config.yaml's version changes on main. HA Supervisor pulls that
+# tag (config.yaml `image:` + `version:`) and offers it as an update.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "lixil_shutter_daemon/**"
+      - ".github/workflows/build.yaml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    # Native ARM runner -- compiling the Rust daemon under QEMU emulation
+    # would take far longer.
+    runs-on: ubuntu-24.04-arm
+    defaults:
+      run:
+        working-directory: lixil_shutter_daemon
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read add-on metadata
+        id: meta
+        run: |
+          echo "version=$(yq -r .version config.yaml)" >> "$GITHUB_OUTPUT"
+          echo "base=$(yq -r .build_from.aarch64 build.yaml)" >> "$GITHUB_OUTPUT"
+          echo "image=ghcr.io/$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')/aarch64-lixil-shutter-daemon" >> "$GITHUB_OUTPUT"
+
+      - name: Skip if version already published
+        id: exists
+        run: |
+          if docker manifest inspect "${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.version }}" >/dev/null 2>&1; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::${{ steps.meta.outputs.version }} already published -- bump version in config.yaml to release"
+          fi
+
+      - uses: docker/setup-buildx-action@v3
+        if: steps.exists.outputs.skip != 'true'
+
+      - uses: docker/login-action@v3
+        if: steps.exists.outputs.skip != 'true'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        if: steps.exists.outputs.skip != 'true'
+        with:
+          context: lixil_shutter_daemon
+          platforms: linux/arm64
+          push: true
+          build-args: BUILD_FROM=${{ steps.meta.outputs.base }}
+          labels: |
+            io.hass.type=addon
+            io.hass.arch=aarch64
+            io.hass.version=${{ steps.meta.outputs.version }}
+          tags: |
+            ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.version }}
+            ${{ steps.meta.outputs.image }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
